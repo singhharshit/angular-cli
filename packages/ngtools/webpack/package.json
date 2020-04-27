@@ -23,18 +23,18 @@
   "dependencies": {
     "@angular-devkit/core": "0.0.0",
     "enhanced-resolve": "4.1.1",
-    "rxjs": "6.5.4",
+    "rxjs": "6.5.5",
     "webpack-sources": "1.4.3"
   },
   "peerDependencies": {
     "@angular/compiler-cli": ">=9.0.0 < 10",
-    "typescript": ">=3.6 < 3.8",
+    "typescript": ">=3.6 < 3.9",
     "webpack": "^4.0.0"
   },
   "devDependencies": {
-    "@angular/compiler": "9.0.1",
-    "@angular/compiler-cli": "9.0.1",
-    "typescript": "3.7.5",
-    "webpack": "4.41.6"
+    "@angular/compiler": "9.1.2",
+    "@angular/compiler-cli": "9.1.2",
+    "typescript": "3.8.3",
+    "webpack": "4.42.1"
   }
 }

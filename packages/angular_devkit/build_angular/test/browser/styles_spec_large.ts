@@ -285,7 +285,7 @@ describe('Browser Builder styles', () => {
         /* normal-comment */
         /*! important-comment */
         div { flex: 1 }`,
-      browserslist: 'IE 10',
+      '.browserslistrc': 'IE 10',
     });
 
     const overrides = { extractCss: true, optimization: false };
@@ -307,6 +307,24 @@ describe('Browser Builder styles', () => {
     const overrides = { extractCss: true, optimization: true };
     const { files } = await browserBuild(architect, host, target, overrides);
     expect(await files['styles.css']).toContain('/*! important-comment */div{flex:1}');
+  });
+
+  it('supports autoprefixer grid comments in SCSS with optimization true', async () => {
+    host.writeMultipleFiles({
+      'src/styles.scss': tags.stripIndents`
+        /* autoprefixer grid: autoplace */
+        .css-grid-container {
+          display: grid;
+          row-gap: 10px;
+          grid-template-columns: 100px;
+        }
+      `,
+      '.browserslistrc': 'IE 10',
+    });
+
+    const overrides = { extractCss: true, optimization: true, styles: ['src/styles.scss'] };
+    const { files } = await browserBuild(architect, host, target, overrides);
+    expect(await files['styles.css']).toContain('-ms-grid-columns:100px;');
   });
 
   // TODO: consider making this a unit test in the url processing plugins.
@@ -584,5 +602,41 @@ describe('Browser Builder styles', () => {
     const overrides = { extractCss: true };
     const { output } = await browserBuild(architect, host, target, overrides);
     expect(output.success).toBe(true);
+  });
+
+  extensionsWithImportSupport.forEach(ext => {
+    it(`retains declarations order in ${ext} files with extractCss when using @import`, async () => {
+      host.writeMultipleFiles({
+        [`src/styles-one.${ext}`]: tags.stripIndents`
+            .one {
+              color: #fff;
+            }
+          `,
+        [`src/styles-two.${ext}`]: tags.stripIndents`
+            .two {
+              color: #fff;
+            }
+          `,
+        // LESS doesn't support css imports by default.
+        // See: https://github.com/less/less.js/issues/3188#issuecomment-374690630
+        [`src/styles-three.${ext}`]: tags.stripIndents`
+            @import ${ext === 'less' ? ' (css) ' : ''}url("https://fonts.googleapis.com/css?family=Roboto:400");
+            .three {
+              color: #fff;
+            }
+          `,
+      });
+
+      const overrides = {
+        extractCss: true,
+        styles: [
+          `src/styles-one.${ext}`,
+          `src/styles-two.${ext}`,
+          `src/styles-three.${ext}`,
+        ],
+      };
+      const { files } = await browserBuild(architect, host, target, overrides);
+      expect(await files['styles.css']).toMatch(/\.one(.|\n|\r)*\.two(.|\n|\r)*\.three/);
+    });
   });
 });

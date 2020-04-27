@@ -175,7 +175,7 @@
           "minItems": 1,
           "items": {
             "type": "string",
-            "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$"
+            "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?(-x(-[a-zA-Z0-9]{1,8})+)?$"
           }
         }
       ]
@@ -198,8 +198,7 @@
     },
     "preserveSymlinks": {
       "type": "boolean",
-      "description": "Do not use the real path when resolving modules.",
-      "default": false
+      "description": "Do not use the real path when resolving modules. If unset then will default to `true` if NodeJS option --preserve-symlinks is set."
     },
     "extractLicenses": {
       "type": "boolean",
@@ -214,8 +213,7 @@
     "namedChunks": {
       "type": "boolean",
       "description": "Use file name for lazy loaded chunks.",
-      "default": true,
-      "x-deprecated": "Since version 9. This option has no effect on server platform."
+      "default": true
     },
     "bundleDependencies": {
       "description": "Which external dependencies to bundle into the bundle. By default, all of node_modules will be bundled.",

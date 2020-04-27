@@ -13,12 +13,12 @@ export { BundleBudgetPlugin, BundleBudgetPluginOptions } from './bundle-budget';
 export { ScriptsWebpackPlugin, ScriptsWebpackPluginOptions } from './scripts-webpack-plugin';
 export { SuppressExtractedTextChunksWebpackPlugin } from './suppress-entry-chunks-webpack-plugin';
 export { RemoveHashPlugin, RemoveHashPluginOptions } from './remove-hash-plugin';
-export { NamedLazyChunksPlugin as NamedChunksPlugin } from './named-chunks-plugin';
+export { NamedLazyChunksPlugin } from './named-chunks-plugin';
+export { CommonJsUsageWarnPlugin } from './common-js-usage-warn-plugin';
 export {
   default as PostcssCliResources,
   PostcssCliResourcesOptions,
 } from './postcss-cli-resources';
 
 import { join } from 'path';
-export const RawCssLoader = require.resolve(join(__dirname, 'raw-css-loader'));
 export const WebpackRollupLoader = require.resolve(join(__dirname, 'webpack-rollup-loader'));

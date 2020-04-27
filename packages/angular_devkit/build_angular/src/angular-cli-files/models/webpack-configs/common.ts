@@ -27,8 +27,8 @@ import {
   debug,
 } from 'webpack';
 import { RawSource } from 'webpack-sources';
-import { AssetPatternClass, ExtraEntryPoint } from '../../../browser/schema';
-import { BuildBrowserFeatures } from '../../../utils';
+import { AssetPatternClass } from '../../../browser/schema';
+import { BuildBrowserFeatures, maxWorkers } from '../../../utils';
 import { findCachePath } from '../../../utils/cache-path';
 import {
   allowMangle,
@@ -36,11 +36,13 @@ import {
   cachingDisabled,
   shouldBeautify,
 } from '../../../utils/environment-options';
-import { BundleBudgetPlugin } from '../../plugins/bundle-budget';
-import { NamedLazyChunksPlugin } from '../../plugins/named-chunks-plugin';
-import { OptimizeCssWebpackPlugin } from '../../plugins/optimize-css-webpack-plugin';
-import { ScriptsWebpackPlugin } from '../../plugins/scripts-webpack-plugin';
-import { WebpackRollupLoader } from '../../plugins/webpack';
+import {
+  BundleBudgetPlugin,
+  NamedLazyChunksPlugin,
+  OptimizeCssWebpackPlugin,
+  ScriptsWebpackPlugin,
+  WebpackRollupLoader,
+} from '../../plugins/webpack';
 import { findAllNodeModules } from '../../utilities/find-up';
 import { WebpackConfigOptions } from '../build-options';
 import { getEsVersionForFileName, getOutputHashFormat, normalizeExtraEntryPoints } from './utils';
@@ -48,7 +50,7 @@ import { getEsVersionForFileName, getOutputHashFormat, normalizeExtraEntryPoints
 const ProgressPlugin = require('webpack/lib/ProgressPlugin');
 const CircularDependencyPlugin = require('circular-dependency-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
-
+const PnpWebpackPlugin = require('pnp-webpack-plugin');
 
 // tslint:disable-next-line:no-big-function
 export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
@@ -128,10 +130,7 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
         tsConfig.options.target || ScriptTarget.ES5,
       );
 
-      if (
-        buildOptions.es5BrowserSupport ||
-        (buildOptions.es5BrowserSupport === undefined && buildBrowserFeatures.isEs5SupportNeeded())
-      ) {
+      if (buildBrowserFeatures.isEs5SupportNeeded()) {
         const polyfillsChunkName = 'polyfills-es5';
         entryPoints[polyfillsChunkName] = [path.join(__dirname, '..', 'es5-polyfills.js')];
         if (differentialLoadingMode) {
@@ -149,12 +148,13 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
                 // tslint:disable-next-line: no-any
                 (compilation.mainTemplate.hooks as any).assetPath.tap(
                   'build-angular',
-                  (filename: string, data: ChunkData) => {
-                    const isMap = filename && filename.endsWith('.map');
+                  (filename: string | ((data: ChunkData) => string), data: ChunkData) => {
+                    const assetName = typeof filename === 'function' ? filename(data) : filename;
+                    const isMap = assetName && assetName.endsWith('.map');
 
                     return data.chunk && data.chunk.name === 'polyfills-es5'
                       ? `polyfills-es5${hashFormat.chunk}.js${isMap ? '.map' : ''}`
-                      : filename;
+                      : assetName;
                   },
                 );
               });
@@ -312,6 +312,12 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
     extraPlugins.push(new NamedLazyChunksPlugin());
   }
 
+  if (!differentialLoadingMode) {
+    // Budgets are computed after differential builds, not via a plugin.
+    // https://github.com/angular/angular-cli/blob/master/packages/angular_devkit/build_angular/src/browser/index.ts
+    extraPlugins.push(new BundleBudgetPlugin({ budgets: buildOptions.budgets }));
+  }
+
   let sourceMapUseRule;
   if ((scriptsSourceMap || stylesSourceMap) && vendorSourceMap) {
     sourceMapUseRule = {
@@ -410,18 +416,18 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
         allowMinify &&
         (buildOptions.platform == 'server'
           ? {
-              ecma: terserEcma,
-              global_defs: angularGlobalDefinitions,
-              keep_fnames: true,
-            }
+            ecma: terserEcma,
+            global_defs: angularGlobalDefinitions,
+            keep_fnames: true,
+          }
           : {
-              ecma: terserEcma,
-              pure_getters: buildOptions.buildOptimizer,
-              // PURE comments work best with 3 passes.
-              // See https://github.com/webpack/webpack/issues/2899#issuecomment-317425926.
-              passes: buildOptions.buildOptimizer ? 3 : 1,
-              global_defs: angularGlobalDefinitions,
-            }),
+            ecma: terserEcma,
+            pure_getters: buildOptions.buildOptimizer,
+            // PURE comments work best with 3 passes.
+            // See https://github.com/webpack/webpack/issues/2899#issuecomment-317425926.
+            passes: buildOptions.buildOptimizer ? 3 : 1,
+            global_defs: angularGlobalDefinitions,
+          }),
       // We also want to avoid mangling on server.
       // Name mangling is handled within the browser builder
       mangle: allowMangle && buildOptions.platform !== 'server' && !differentialLoadingMode,
@@ -430,7 +436,7 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
     extraMinimizers.push(
       new TerserPlugin({
         sourceMap: scriptsSourceMap,
-        parallel: true,
+        parallel: maxWorkers,
         cache: !cachingDisabled && findCachePath('terser-webpack'),
         extractComments: false,
         chunkFilter: (chunk: compilation.Chunk) =>
@@ -441,7 +447,7 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
       // They are shared between ES2015 & ES5 outputs so must support ES5.
       new TerserPlugin({
         sourceMap: scriptsSourceMap,
-        parallel: true,
+        parallel: maxWorkers,
         cache: !cachingDisabled && findCachePath('terser-webpack'),
         extractComments: false,
         chunkFilter: (chunk: compilation.Chunk) =>
@@ -482,10 +488,12 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
       symlinks: !buildOptions.preserveSymlinks,
       modules: [wco.tsConfig.options.baseUrl || projectRoot, 'node_modules'],
       alias,
+      plugins: [PnpWebpackPlugin],
     },
     resolveLoader: {
       symlinks: !buildOptions.preserveSymlinks,
       modules: loaderNodeModules,
+      plugins: [PnpWebpackPlugin.moduleLoader(module)],
     },
     context: projectRoot,
     entry: entryPoints,
@@ -523,14 +531,6 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
           parser: { system: true },
         },
         {
-          test: /[\/\\]hot[\/\\]emitter\.js$/,
-          parser: { node: { events: true } },
-        },
-        {
-          test: /[\/\\]webpack-dev-server[\/\\]client[\/\\]utils[\/\\]createSocketUrl\.js$/,
-          parser: { node: { querystring: true } },
-        },
-        {
           test: /\.js$/,
           // Factory files are processed by BO in the rules added in typescript.ts.
           exclude: /(ngfactory|ngstyle)\.js$/,
@@ -550,13 +550,7 @@ export function getCommonConfig(wco: WebpackConfigOptions): Configuration {
       minimizer: [
         new HashedModuleIdsPlugin(),
         ...extraMinimizers,
-      ].concat(differentialLoadingMode ? [
-        // Budgets are computed after differential builds, not via a plugin.
-        // https://github.com/angular/angular-cli/blob/master/packages/angular_devkit/build_angular/src/browser/index.ts
-      ] : [
-        // Non differential builds should be computed here, as a plugin.
-        new BundleBudgetPlugin({ budgets: buildOptions.budgets }),
-      ]),
+      ],
     },
     plugins: [
       // Always replace the context for the System.import in angular/core to prevent warnings.

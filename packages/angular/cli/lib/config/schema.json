@@ -393,7 +393,7 @@
                   "description": "Specifies the source locale of the application.",
                   "default": "en-US",
                   "$comment": "IETF BCP 47 language tag (simplified)",
-                  "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?$"
+                  "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?(-x(-[a-zA-Z0-9]{1,8})+)?$"
                 },
                 {
                   "type": "object",
@@ -402,7 +402,7 @@
                     "code": {
                       "type": "string",
                       "description": "Specifies the locale code of the source locale",
-                      "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?$"
+                      "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?(-x(-[a-zA-Z0-9]{1,8})+)?$"
                     },
                     "baseHref": {
                       "type": "string",
@@ -417,7 +417,7 @@
               "type": "object",
               "additionalProperties": false,
               "patternProperties": {
-                "^[a-z]{2}(-[a-zA-Z]{2,})?$": {
+                "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?(-x(-[a-zA-Z0-9]{1,8})+)?$": {
                   "oneOf": [
                     {
                       "type": "string",
@@ -856,8 +856,7 @@
             },
             "preserveSymlinks": {
               "type": "boolean",
-              "description": "Do not use the real path when resolving modules.",
-              "default": false
+              "description": "Do not use the real path when resolving modules."
             },
             "extractLicenses": {
               "type": "boolean",
@@ -951,11 +950,6 @@
               },
               "default": []
             },
-            "es5BrowserSupport": {
-              "description": "Enables conditionally loaded ES2015 polyfills.",
-              "type": "boolean",
-              "default": false
-            },
             "rebaseRootRelativeCssUrls": {
               "description": "Change root relative URLs in stylesheets to include base HREF and deploy URL. Use only for compatibility and transition. The behavior of this option is non-standard and will be removed in the next major release.",
               "type": "boolean",
@@ -975,6 +969,13 @@
                 "anonymous",
                 "use-credentials"
               ]
+            },
+            "allowedCommonJsDependencies": {
+              "description": "A list of CommonJS packages that are allowed to be used without a built time warning.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "additionalProperties": false,
@@ -1490,8 +1491,7 @@
             },
             "preserveSymlinks": {
               "type": "boolean",
-              "description": "Do not use the real path when resolving modules.",
-              "default": false
+              "description": "Do not use the real path when resolving modules."
             },
             "browsers": {
               "type": "string",
@@ -1651,6 +1651,15 @@
             "devServerTarget": {
               "type": "string",
               "description": "Dev server target to run tests against."
+            },
+            "grep": {
+              "type": "string",
+              "description": "Execute specs whose names match the pattern, which is internally compiled to a RegExp."
+            },
+            "invertGrep": {
+              "type": "boolean",
+              "description": "Invert the selection specified by the 'grep' option.",
+              "default": false
             },
             "specs": {
               "type": "array",
@@ -1867,8 +1876,7 @@
             },
             "preserveSymlinks": {
               "type": "boolean",
-              "description": "Do not use the real path when resolving modules.",
-              "default": false
+              "description": "Do not use the real path when resolving modules."
             },
             "extractLicenses": {
               "type": "boolean",
@@ -2011,7 +2019,7 @@
             "format": {
               "type": "string",
               "description": "Output format (prose, json, stylish, verbose, pmd, msbuild, checkstyle, vso, fileslist, codeFrame).",
-              "default": "prose",
+              "default": "stylish",
               "anyOf": [
                 {
                   "enum": [
@@ -2072,7 +2080,7 @@
             "minItems": 1,
             "items": {
               "type": "string",
-              "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$"
+              "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z]{4})?(-([a-zA-Z]{2}|[0-9]{3}))?(-[a-zA-Z]{5,8})?(-x(-[a-zA-Z0-9]{1,8})+)?$"
             }
           }
         ]

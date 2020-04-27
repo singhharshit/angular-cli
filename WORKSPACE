@@ -8,8 +8,8 @@ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 http_archive(
     name = "build_bazel_rules_nodejs",
-    sha256 = "b6670f9f43faa66e3009488bbd909bc7bc46a5a9661a33f6bc578068d1837f37",
-    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/1.3.0/rules_nodejs-1.3.0.tar.gz"],
+    sha256 = "f9e7b9f42ae202cc2d2ce6d698ccb49a9f7f7ea572a78fd451696d03ef2ee116",
+    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/1.6.0/rules_nodejs-1.6.0.tar.gz"],
 )
 
 # We use protocol buffers for the Build Event Protocol
@@ -17,7 +17,7 @@ git_repository(
     name = "com_google_protobuf",
     commit = "6263268b8c1b78a8a9b65acd6f5dd5c04dd9b0e1",
     remote = "https://github.com/protocolbuffers/protobuf",
-    shallow_since = "1559159889 -0400",
+    shallow_since = "1576607245 -0800",
 )
 
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
@@ -64,17 +64,9 @@ node_repositories(
     node_version = "10.16.0",
     package_json = ["//:package.json"],
     yarn_repositories = {
-        "1.17.3": ("yarn-v1.17.3.tar.gz", "yarn-v1.17.3", "e3835194409f1b3afa1c62ca82f561f1c29d26580c9e220c36866317e043c6f3"),
+        "1.22.4": ("yarn-v1.22.4.tar.gz", "yarn-v1.22.4", "bc5316aa110b2f564a71a3d6e235be55b98714660870c5b6b2d2d3f12587fb58"),
     },
-    # yarn 1.13.0 under Bazel has a regression on Windows that causes build errors on rebuilds:
-    # ```
-    # ERROR: Source forest creation failed: C:/.../fyuc5c3n/execroot/angular/external (Directory not empty)
-    # ```
-    # See https://github.com/angular/angular/pull/29431 for more information.
-    # It possible that versions of yarn past 1.13.0 do not have this issue, however, before
-    # advancing this version we need to test manually on Windows that the above error does not
-    # happen as the issue is not caught by CI.
-    yarn_version = "1.17.3",
+    yarn_version = "1.22.4",
 )
 
 yarn_install(
@@ -116,9 +108,9 @@ web_test_repositories()
 # Bring in bazel_toolchains for RBE setup configuration.
 http_archive(
     name = "bazel_toolchains",
-    sha256 = "4d348abfaddbcee0c077fc51bb1177065c3663191588ab3d958f027cbfe1818b",
-    strip_prefix = "bazel-toolchains-2.1.0",
-    url = "https://github.com/bazelbuild/bazel-toolchains/archive/2.1.0.tar.gz",
+    sha256 = "144290c4166bd67e76a54f96cd504ed86416ca3ca82030282760f0823c10be48",
+    strip_prefix = "bazel-toolchains-3.1.1",
+    url = "https://github.com/bazelbuild/bazel-toolchains/archive/3.1.1.tar.gz",
 )
 
 load("@bazel_toolchains//rules:environments.bzl", "clang_env")

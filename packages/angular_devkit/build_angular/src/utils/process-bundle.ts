@@ -11,24 +11,32 @@ import {
   PluginObj,
   parseSync,
   transformAsync,
+  transformFromAstSync,
   traverse,
   types,
 } from '@babel/core';
+import templateBuilder from '@babel/template';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { RawSourceMap, SourceMapConsumer, SourceMapGenerator } from 'source-map';
 import { minify } from 'terser';
 import * as v8 from 'v8';
-import { SourceMapSource } from 'webpack-sources';
+import {
+  ConcatSource,
+  OriginalSource,
+  ReplaceSource,
+  Source,
+  SourceMapSource,
+} from 'webpack-sources';
 import { allowMangle, allowMinify, shouldBeautify } from './environment-options';
 import { I18nOptions } from './i18n-options';
 
 const cacache = require('cacache');
 const deserialize = ((v8 as unknown) as { deserialize(buffer: Buffer): unknown }).deserialize;
 
-// If code size is larger than 1MB, consider lower fidelity but faster sourcemap merge
-const FAST_SOURCEMAP_THRESHOLD = 1024 * 1024;
+// If code size is larger than 500KB, consider lower fidelity but faster sourcemap merge
+const FAST_SOURCEMAP_THRESHOLD = 500 * 1024;
 
 export interface ProcessBundleOptions {
   filename: string;
@@ -46,7 +54,7 @@ export interface ProcessBundleOptions {
   integrityAlgorithm?: 'sha256' | 'sha384' | 'sha512';
   runtimeData?: ProcessBundleResult[];
   replacements?: [string, string][];
-  supportedBrowsers?: string [] | Record<string, string>;
+  supportedBrowsers?: string[] | Record<string, string>;
 }
 
 export interface ProcessBundleResult {
@@ -118,6 +126,17 @@ export async function process(options: ProcessBundleOptions): Promise<ProcessBun
   let downlevelCode;
   let downlevelMap;
   if (downlevel) {
+    const {supportedBrowsers: targets = []} = options;
+
+    // todo: revisit this in version 10, when we update our defaults browserslist
+    // Without this workaround bundles will not be downlevelled because Babel doesn't know handle to 'op_mini all'
+    // See: https://github.com/babel/babel/issues/11155
+    if (Array.isArray(targets) && targets.includes('op_mini all')) {
+      targets.push('ie_mob 11');
+    } else if ('op_mini' in targets) {
+      targets['ie_mob'] = '11';
+    }
+
     // Downlevel the bundle
     const transformResult = await transformAsync(sourceCode, {
       filename,
@@ -131,7 +150,7 @@ export async function process(options: ProcessBundleOptions): Promise<ProcessBun
         require.resolve('@babel/preset-env'),
         {
           // browserslist-compatible query or object of minimum environment versions to support
-          targets: options.supportedBrowsers,
+          targets,
           // modules aren't needed since the bundles use webpack's custom module loading
           modules: false,
           // 'transform-typeof-symbol' generates slower code
@@ -490,6 +509,61 @@ function createReplacePlugin(replacements: [string, string][]): PluginObj {
   };
 }
 
+const USE_LOCALIZE_PLUGINS = false;
+
+async function createI18nPlugins(
+  locale: string,
+  translation: unknown | undefined,
+  missingTranslation: 'error' | 'warning' | 'ignore',
+  localeDataContent: string | undefined,
+) {
+  const plugins = [];
+  // tslint:disable-next-line: no-implicit-dependencies
+  const localizeDiag = await import('@angular/localize/src/tools/src/diagnostics');
+
+  const diagnostics = new localizeDiag.Diagnostics();
+
+  const es2015 = await import(
+    // tslint:disable-next-line: trailing-comma no-implicit-dependencies
+    '@angular/localize/src/tools/src/translate/source_files/es2015_translate_plugin'
+  );
+  plugins.push(
+    // tslint:disable-next-line: no-any
+    es2015.makeEs2015TranslatePlugin(diagnostics, (translation || {}) as any, {
+      missingTranslation: translation === undefined ? 'ignore' : missingTranslation,
+    }),
+  );
+
+  const es5 = await import(
+    // tslint:disable-next-line: trailing-comma no-implicit-dependencies
+    '@angular/localize/src/tools/src/translate/source_files/es5_translate_plugin'
+  );
+  plugins.push(
+    // tslint:disable-next-line: no-any
+    es5.makeEs5TranslatePlugin(diagnostics, (translation || {}) as any, {
+      missingTranslation: translation === undefined ? 'ignore' : missingTranslation,
+    }),
+  );
+
+  const inlineLocale = await import(
+    // tslint:disable-next-line: trailing-comma no-implicit-dependencies
+    '@angular/localize/src/tools/src/translate/source_files/locale_plugin'
+  );
+  plugins.push(inlineLocale.makeLocalePlugin(locale));
+
+  if (localeDataContent) {
+    plugins.push({
+      visitor: {
+        Program(path: NodePath<types.Program>) {
+          path.unshiftContainer('body', templateBuilder.ast(localeDataContent));
+        },
+      },
+    });
+  }
+
+  return { diagnostics, plugins };
+}
+
 export interface InlineOptions {
   filename: string;
   code: string;
@@ -522,7 +596,102 @@ export async function inlineLocales(options: InlineOptions) {
     return inlineCopyOnly(options);
   }
 
-  const { default: MagicString } = await import('magic-string');
+  let ast: ParseResult | undefined | null;
+  try {
+    ast = parseSync(options.code, {
+      babelrc: false,
+      configFile: false,
+      sourceType: 'script',
+      filename: options.filename,
+    });
+  } catch (error) {
+    if (error.message) {
+      // Make the error more readable.
+      // Same errors will contain the full content of the file as the error message
+      // Which makes it hard to find the actual error message.
+      const index = error.message.indexOf(')\n');
+      const msg = index !== -1 ? error.message.substr(0, index + 1) : error.message;
+      throw new Error(`${msg}\nAn error occurred inlining file "${options.filename}"`);
+    }
+  }
+
+  if (!ast) {
+    throw new Error(`Unknown error occurred inlining file "${options.filename}"`);
+  }
+
+  if (!USE_LOCALIZE_PLUGINS) {
+    return inlineLocalesDirect(ast, options);
+  }
+
+  const diagnostics = [];
+  const inputMap = options.map && (JSON.parse(options.map) as RawSourceMap);
+  for (const locale of i18n.inlineLocales) {
+    const isSourceLocale = locale === i18n.sourceLocale;
+    // tslint:disable-next-line: no-any
+    const translations: any = isSourceLocale ? {} : i18n.locales[locale].translation || {};
+    let localeDataContent;
+    if (options.setLocale) {
+      // If locale data is provided, load it and prepend to file
+      const localeDataPath = i18n.locales[locale]?.dataPath;
+      if (localeDataPath) {
+        localeDataContent = await loadLocaleData(localeDataPath, true);
+      }
+    }
+
+    const { diagnostics: localeDiagnostics, plugins } = await createI18nPlugins(
+      locale,
+      translations,
+      isSourceLocale ? 'ignore' : options.missingTranslation || 'warning',
+      localeDataContent,
+    );
+    const transformResult = await transformFromAstSync(ast, options.code, {
+      filename: options.filename,
+      // using false ensures that babel will NOT search and process sourcemap comments (large memory usage)
+      // The types do not include the false option even though it is valid
+      // tslint:disable-next-line: no-any
+      inputSourceMap: false as any,
+      babelrc: false,
+      configFile: false,
+      plugins,
+      compact: !shouldBeautify,
+      sourceMaps: !!inputMap,
+    });
+
+    diagnostics.push(...localeDiagnostics.messages);
+
+    if (!transformResult || !transformResult.code) {
+      throw new Error(`Unknown error occurred processing bundle for "${options.filename}".`);
+    }
+
+    const outputPath = path.join(
+      options.outputPath,
+      i18n.flatOutput ? '' : locale,
+      options.filename,
+    );
+    fs.writeFileSync(outputPath, transformResult.code);
+
+    if (inputMap && transformResult.map) {
+      const outputMap = await mergeSourceMaps(
+        options.code,
+        inputMap,
+        transformResult.code,
+        transformResult.map,
+        options.filename,
+        options.code.length > FAST_SOURCEMAP_THRESHOLD,
+      );
+
+      fs.writeFileSync(outputPath + '.map', JSON.stringify(outputMap));
+    }
+  }
+
+  return { file: options.filename, diagnostics };
+}
+
+async function inlineLocalesDirect(ast: ParseResult, options: InlineOptions) {
+  if (!i18n || i18n.inlineLocales.size === 0) {
+    return { file: options.filename, diagnostics: [], count: 0 };
+  }
+
   const { default: generate } = await import('@babel/generator');
   const utils = await import(
     // tslint:disable-next-line: trailing-comma no-implicit-dependencies
@@ -533,16 +702,26 @@ export async function inlineLocales(options: InlineOptions) {
 
   const diagnostics = new localizeDiag.Diagnostics();
 
-  const positions = findLocalizePositions(options, utils);
+  const positions = findLocalizePositions(ast, options, utils);
   if (positions.length === 0 && !options.setLocale) {
     return inlineCopyOnly(options);
   }
 
-  // tslint:disable-next-line: no-any
-  let content = new MagicString(options.code, { filename: options.filename } as any);
   const inputMap = options.map && (JSON.parse(options.map) as RawSourceMap);
-  let contentClone;
+  // Cleanup source root otherwise it will be added to each source entry
+  const mapSourceRoot = inputMap && inputMap.sourceRoot;
+  if (inputMap) {
+    delete inputMap.sourceRoot;
+  }
+
   for (const locale of i18n.inlineLocales) {
+    const content = new ReplaceSource(
+      inputMap
+        ? // tslint:disable-next-line: no-any
+          new SourceMapSource(options.code, options.filename, inputMap as any)
+        : new OriginalSource(options.code, options.filename),
+    );
+
     const isSourceLocale = locale === i18n.sourceLocale;
     // tslint:disable-next-line: no-any
     const translations: any = isSourceLocale ? {} : i18n.locales[locale].translation || {};
@@ -558,48 +737,41 @@ export async function inlineLocales(options: InlineOptions) {
       const expression = utils.buildLocalizeReplacement(translated[0], translated[1]);
       const { code } = generate(expression);
 
-      content.overwrite(position.start, position.end, code);
+      content.replace(position.start, position.end - 1, code);
     }
 
+    let outputSource: Source = content;
     if (options.setLocale) {
-      const setLocaleText = `var $localize=Object.assign(void 0===$localize?{}:$localize,{locale:"${locale}"});`;
-      contentClone = content.clone();
-      content.prepend(setLocaleText);
+      const setLocaleText = `var $localize=Object.assign(void 0===$localize?{}:$localize,{locale:"${locale}"});\n`;
 
       // If locale data is provided, load it and prepend to file
+      let localeDataSource: Source | null = null;
       const localeDataPath = i18n.locales[locale] && i18n.locales[locale].dataPath;
       if (localeDataPath) {
-        const localDataContent = await loadLocaleData(localeDataPath, true);
-        // The semicolon ensures that there is no syntax error between statements
-        content.prepend(localDataContent + ';');
+        const localeDataContent = await loadLocaleData(localeDataPath, true);
+        localeDataSource = new OriginalSource(localeDataContent, path.basename(localeDataPath));
       }
+
+      outputSource = localeDataSource
+        // The semicolon ensures that there is no syntax error between statements
+        ? new ConcatSource(setLocaleText, localeDataSource, ';\n', content)
+        : new ConcatSource(setLocaleText, content);
     }
 
-    const output = content.toString();
+    const { source: outputCode, map: outputMap } = outputSource.sourceAndMap();
     const outputPath = path.join(
       options.outputPath,
       i18n.flatOutput ? '' : locale,
       options.filename,
     );
-    fs.writeFileSync(outputPath, output);
+    fs.writeFileSync(outputPath, outputCode);
 
-    if (inputMap) {
-      const contentMap = content.generateMap();
-      const outputMap = mergeSourceMaps(
-        options.code,
-        inputMap,
-        output,
-        contentMap,
-        options.filename,
-        options.code.length > FAST_SOURCEMAP_THRESHOLD,
-      );
-
+    if (inputMap && outputMap) {
+      outputMap.file = options.filename;
+      if (mapSourceRoot) {
+        outputMap.sourceRoot = mapSourceRoot;
+      }
       fs.writeFileSync(outputPath + '.map', JSON.stringify(outputMap));
-    }
-
-    if (contentClone) {
-      content = contentClone;
-      contentClone = undefined;
     }
   }
 
@@ -627,34 +799,11 @@ function inlineCopyOnly(options: InlineOptions) {
 }
 
 function findLocalizePositions(
+  ast: ParseResult,
   options: InlineOptions,
   // tslint:disable-next-line: no-implicit-dependencies
   utils: typeof import('@angular/localize/src/tools/src/translate/source_files/source_file_utils'),
 ): LocalizePosition[] {
-  let ast: ParseResult | undefined | null;
-
-  try {
-    ast = parseSync(options.code, {
-      babelrc: false,
-      configFile: false,
-      sourceType: 'script',
-      filename: options.filename,
-    });
-  } catch (error) {
-    if (error.message) {
-      // Make the error more readable.
-      // Same errors will contain the full content of the file as the error message
-      // Which makes it hard to find the actual error message.
-      const index = error.message.indexOf(')\n');
-      const msg = index !== -1 ? error.message.substr(0, index + 1) : error.message;
-      throw new Error(`${msg}\nAn error occurred inlining file "${options.filename}"`);
-    }
-  }
-
-  if (!ast) {
-    throw new Error(`Unknown error occurred inlining file "${options.filename}"`);
-  }
-
   const positions: LocalizePosition[] = [];
   if (options.es5) {
     traverse(ast, {

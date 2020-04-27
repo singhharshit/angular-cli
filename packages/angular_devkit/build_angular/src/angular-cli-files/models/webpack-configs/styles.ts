@@ -11,7 +11,6 @@ import * as webpack from 'webpack';
 import {
   AnyComponentStyleBudgetChecker,
   PostcssCliResources,
-  RawCssLoader,
   RemoveHashPlugin,
   SuppressExtractedTextChunksWebpackPlugin,
 } from '../../plugins/webpack';
@@ -136,6 +135,11 @@ export function getStylesConfig(wco: WebpackConfigOptions) {
               // bootstrap-sass requires a minimum precision of 8
               precision: 8,
               includePaths,
+              // Use expanded as otherwise sass will remove comments that are needed for autoprefixer
+              // Ex: /* autoprefixer grid: autoplace */
+              // tslint:disable-next-line: max-line-length
+              // See: https://github.com/webpack-contrib/sass-loader/blob/45ad0be17264ceada5f0b4fb87e9357abe85c4ff/src/getSassOptions.js#L68-L70
+              outputStyle: 'expanded',
             },
           },
         },
@@ -201,7 +205,13 @@ export function getStylesConfig(wco: WebpackConfigOptions) {
           test,
           use: [
             buildOptions.extractCss ? MiniCssExtractPlugin.loader : require.resolve('style-loader'),
-            RawCssLoader,
+            {
+              loader: require.resolve('css-loader'),
+              options: {
+                url: false,
+                sourceMap: cssSourceMap,
+              },
+            },
             {
               loader: require.resolve('postcss-loader'),
               options: {

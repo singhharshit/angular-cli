@@ -253,28 +253,28 @@ describe('Component Schematic', () => {
     const options = { ...defaultOptions, displayBlock: true };
     const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
     const content = tree.readContent('/projects/bar/src/app/foo/foo.component.css');
-    expect(content).toMatch(/:host {\n  display: block;\n}\n/);
+    expect(content).toMatch(/:host {\r?\n  display: block;\r?\n}/);
   });
 
   it('should respect the displayBlock option when inlineStyle is `false` and use correct syntax for `scss`', async () => {
     const options = { ...defaultOptions, displayBlock: true, style: 'scss' };
     const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
     const content = tree.readContent('/projects/bar/src/app/foo/foo.component.scss');
-    expect(content).toMatch(/:host {\n  display: block;\n}\n/);
+    expect(content).toMatch(/:host {\r?\n  display: block;\r?\n}/);
   });
 
   it('should respect the displayBlock option when inlineStyle is `false` and use correct syntax for `sass', async () => {
     const options = { ...defaultOptions, displayBlock: true, style: 'sass' };
     const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
     const content = tree.readContent('/projects/bar/src/app/foo/foo.component.sass');
-    expect(content).toMatch(/\\:host\n  display: block;\n/);
+    expect(content).toMatch(/\\:host\r?\n  display: block;\r?\n/);
   });
 
   it('should respect the displayBlock option when inlineStyle is `true`', async () => {
     const options = { ...defaultOptions, displayBlock: true, inlineStyle: true };
     const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
     const content = tree.readContent('/projects/bar/src/app/foo/foo.component.ts');
-    expect(content).toMatch(/:host {\n(\s*)display: block;(\s*)}\n/);
+    expect(content).toMatch(/:host {\r?\n(\s*)display: block;(\s*)}\r?\n/);
   });
 
   it('should respect the style option', async () => {
@@ -295,6 +295,17 @@ describe('Component Schematic', () => {
     expect(testContent).toContain("describe('FooRoute'");
     expect(tree.files).toContain('/projects/bar/src/app/foo/foo.route.css');
     expect(tree.files).toContain('/projects/bar/src/app/foo/foo.route.html');
+  });
+
+  it('should allow empty string in the type option', async () => {
+    const options = { ...defaultOptions, type: '' };
+    const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
+    const content = tree.readContent('/projects/bar/src/app/foo/foo.ts');
+    const testContent = tree.readContent('/projects/bar/src/app/foo/foo.spec.ts');
+    expect(content).toContain('export class Foo implements OnInit');
+    expect(testContent).toContain("describe('Foo'");
+    expect(tree.files).toContain('/projects/bar/src/app/foo/foo.css');
+    expect(tree.files).toContain('/projects/bar/src/app/foo/foo.html');
   });
 
   it('should use the module flag even if the module is a routing module', async () => {

@@ -18,6 +18,7 @@ import { Command } from '../models/command';
 import { Arguments } from '../models/interface';
 import { runTempPackageBin } from '../tasks/install-package';
 import { colors } from '../utilities/color';
+import { writeErrorToLogFile } from '../utilities/log-file';
 import { getPackageManager } from '../utilities/package-manager';
 import {
   PackageIdentifier,
@@ -141,9 +142,13 @@ export class UpdateCommand extends Command<UpdateCommandSchema> {
       return { success: !error, files };
     } catch (e) {
       if (e instanceof UnsuccessfulWorkflowExecution) {
-        this.logger.error('The update failed. See above.');
+        this.logger.error(`${colors.symbols.cross} Migration failed. See above for further details.\n`);
       } else {
-        this.logger.fatal(e.message);
+        const logPath = writeErrorToLogFile(e);
+        this.logger.fatal(
+          `${colors.symbols.cross} Migration failed: ${e.message}\n` +
+          `  See "${logPath}" for further details.\n`,
+        );
       }
 
       return { success: false, files };
@@ -223,8 +228,6 @@ export class UpdateCommand extends Command<UpdateCommandSchema> {
 
       const result = await this.executeSchematic(migration.collection.name, migration.name);
       if (!result.success) {
-        this.logger.error(`${colors.symbols.cross} Migration failed. See above for further details.\n`);
-
         return false;
       }
 
@@ -522,6 +525,8 @@ export class UpdateCommand extends Command<UpdateCommandSchema> {
       if (success) {
         if (
           packageName === '@angular/core'
+          && options.from
+          && +options.from.split('.')[0] < 9
           && (options.to || packageNode.package.version).split('.')[0] === '9'
         ) {
           this.logger.info(NG_VERSION_9_POST_MSG);
@@ -672,7 +677,7 @@ export class UpdateCommand extends Command<UpdateCommandSchema> {
         }
       }
 
-      if (migrations.some(m => m.package === '@angular/core' && m.to.split('.')[0] === '9')) {
+      if (migrations.some(m => m.package === '@angular/core' && m.to.split('.')[0] === '9' && +m.from.split('.')[0] < 9)) {
         this.logger.info(NG_VERSION_9_POST_MSG);
       }
     }

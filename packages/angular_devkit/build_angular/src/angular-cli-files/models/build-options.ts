@@ -68,8 +68,6 @@ export interface BuildOptions {
   statsJson: boolean;
   forkTypeChecker: boolean;
   profile?: boolean;
-  /** @deprecated since version 8 **/
-  es5BrowserSupport?: boolean;
 
   main: string;
   polyfills?: string;
@@ -87,8 +85,8 @@ export interface BuildOptions {
 
   /* Append script target version to filename. */
   esVersionInFileName?: boolean;
-
   experimentalRollupPass?: boolean;
+  allowedCommonJsDependencies?: string[];
 }
 
 export interface WebpackTestOptions extends BuildOptions {

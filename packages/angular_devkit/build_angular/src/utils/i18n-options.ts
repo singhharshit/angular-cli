@@ -206,7 +206,18 @@ export async function configureI18nBuild<T extends BrowserBuilderSchema | Server
         continue;
       }
 
-      const localeDataPath = findLocaleDataPath(locale, localeDataBasePath);
+      let localeDataPath = findLocaleDataPath(locale, localeDataBasePath);
+      if (!localeDataPath) {
+        const [first] = locale.split('-');
+        if (first) {
+          localeDataPath = findLocaleDataPath(first.toLowerCase(), localeDataBasePath);
+          if (localeDataPath) {
+            context.logger.warn(
+              `Locale data for '${locale}' cannot be found.  Using locale data for '${first}'.`,
+            );
+          }
+        }
+      }
       if (!localeDataPath) {
         context.logger.warn(
           `Locale data for '${locale}' cannot be found.  No locale data will be included for this locale.`,
@@ -327,9 +338,17 @@ function findLocaleDataBasePath(projectRoot: string): string | null {
 }
 
 function findLocaleDataPath(locale: string, basePath: string): string | null {
-  const localeDataPath = path.join(basePath, locale + '.js');
+  // Remove private use subtags
+  const scrubbedLocale = locale.replace(/-x(-[a-zA-Z0-9]{1,8})+$/, '');
+
+  const localeDataPath = path.join(basePath, scrubbedLocale + '.js');
 
   if (!fs.existsSync(localeDataPath)) {
+    if (scrubbedLocale === 'en-US') {
+      // fallback to known existing en-US locale data as of 9.0
+      return findLocaleDataPath('en-US-POSIX', basePath);
+    }
+
     return null;
   }
 

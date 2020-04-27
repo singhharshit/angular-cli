@@ -385,13 +385,44 @@ export class AngularCompilerPlugin {
     }
 
     const newTsProgram = this._getTsProgram();
-    if (oldTsProgram && newTsProgram) {
+    const newProgramSourceFiles = newTsProgram?.getSourceFiles();
+    const localDtsFiles = new Set(
+      newProgramSourceFiles?.filter(
+        f => f.isDeclarationFile && !this._nodeModulesRegExp.test(f.fileName),
+      )
+      .map(f => this._compilerHost.denormalizePath(f.fileName)),
+    );
+
+    if (!oldTsProgram) {
+      // Add all non node package dts files as depedencies when not having an old program
+      for (const dts of localDtsFiles) {
+        this._typeDeps.add(dts);
+      }
+    } else if (oldTsProgram && newProgramSourceFiles) {
       // The invalidation should only happen if we have an old program
       // as otherwise we will invalidate all the sourcefiles.
       const oldFiles = new Set(oldTsProgram.getSourceFiles().map(sf => sf.fileName));
-      const newFiles = newTsProgram.getSourceFiles().filter(sf => !oldFiles.has(sf.fileName));
-      for (const newFile of newFiles) {
-        this._compilerHost.invalidate(newFile.fileName);
+      const newProgramFiles = new Set(newProgramSourceFiles.map(sf => sf.fileName));
+
+      for (const dependency of this._typeDeps) {
+        // Remove type dependencies of no longer existing files
+        if (!newProgramFiles.has(forwardSlashPath(dependency))) {
+          this._typeDeps.delete(dependency);
+        }
+      }
+
+      for (const fileName of newProgramFiles) {
+        if (oldFiles.has(fileName)) {
+          continue;
+        }
+
+        this._compilerHost.invalidate(fileName);
+
+        const denormalizedFileName = this._compilerHost.denormalizePath(fileName);
+        if (localDtsFiles.has(denormalizedFileName)) {
+          // Add new dts file as a type depedency
+          this._typeDeps.add(denormalizedFileName);
+        }
       }
     }
 
@@ -439,7 +470,7 @@ export class AngularCompilerPlugin {
       time('AngularCompilerPlugin._listLazyRoutesFromProgram.createProgram');
       ngProgram = createProgram({
         rootNames: this._rootNames,
-        options: { ...this._compilerOptions, genDir: '', collectAllErrors: true },
+        options: { ...this._compilerOptions, genDir: '', collectAllErrors: true, enableIvy: false },
         host: this._compilerHost,
       });
       timeEnd('AngularCompilerPlugin._listLazyRoutesFromProgram.createProgram');
@@ -630,8 +661,7 @@ export class AngularCompilerPlugin {
 
     // This function removes a source file name and all its dependencies from the set.
     const removeSourceFile = (fileName: string, originalModule = false) => {
-      if (unusedSourceFileNames.has(fileName)
-        || (originalModule && typeDepFileNames.has(fileName))) {
+      if (unusedSourceFileNames.has(fileName) || (originalModule && typeDepFileNames.has(fileName))) {
         unusedSourceFileNames.delete(fileName);
         if (originalModule) {
           typeDepFileNames.delete(fileName);
@@ -649,7 +679,7 @@ export class AngularCompilerPlugin {
       compilation.warnings.push(
         `${fileName} is part of the TypeScript compilation but it's unused.\n` +
         `Add only entry points to the 'files' or 'include' properties in your tsconfig.`,
-        );
+      );
       this._unusedFiles.add(fileName);
       // Remove the truly unused from the type dep list.
       typeDepFileNames.delete(fileName);
@@ -659,7 +689,9 @@ export class AngularCompilerPlugin {
     // These are the TS files that weren't part of the compilation modules, aren't unused, but were
     // part of the TS original source list.
     // Next build we add them to the TS entry points so that they trigger rebuilds.
-    this._typeDeps = typeDepFileNames;
+    for (const fileName of typeDepFileNames) {
+      this._typeDeps.add(fileName);
+    }
   }
 
   // Registration hook for webpack plugin.
@@ -744,7 +776,10 @@ export class AngularCompilerPlugin {
           this._errors,
           this._basePath,
           this._compilerOptions,
+          this._tsConfigPath,
         );
+
+        ngccProcessor.process();
       }
 
       // Use an identity function as all our paths are absolute already.
@@ -876,18 +911,18 @@ export class AngularCompilerPlugin {
         // When Ivy is enabled we need to add the fields added by NGCC
         // to take precedence over the provided mainFields.
         // NGCC adds fields in package.json suffixed with '_ivy_ngcc'
-        // Example: module -> module__ivy_ngcc
+        // Example: module -> module_ivy_ngcc
         // tslint:disable-next-line:no-any
         (compiler as any).resolverFactory.hooks.resolveOptions
           .for('normal')
           // tslint:disable-next-line:no-any
           .tap('WebpackOptionsApply', (resolveOptions: any) => {
-            const mainFields = (resolveOptions.mainFields as string[])
-              .map(f => [`${f}_ivy_ngcc`, f]);
+            const originalMainFields: string[] = resolveOptions.mainFields;
+            const ivyMainFields = originalMainFields.map(f => `${f}_ivy_ngcc`);
 
             return {
               ...resolveOptions,
-              mainFields: flattenArray(mainFields),
+              mainFields: [...ivyMainFields, ...originalMainFields],
             };
           });
       }
@@ -1233,7 +1268,7 @@ export class AngularCompilerPlugin {
 
       for (const resource of resourceImports) {
         for (const dep of this.getResourceDependencies(
-            this._compilerHost.denormalizePath(resource))) {
+          this._compilerHost.denormalizePath(resource))) {
           resourceDependencies.push(dep);
         }
       }

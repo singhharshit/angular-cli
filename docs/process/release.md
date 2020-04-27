@@ -18,7 +18,7 @@ TBD
 ## Merging PRs
 
 The list of PRs which are currently ready to merge (approved with passing status checks) can
-be found with [this search](https://github.com/angular/angular-cli/pulls?q=is%3Apr+is%3Aopen+label%3A%22PR+action%3A+merge%22).
+be found with [this search](https://github.com/angular/angular-cli/pulls?q=is%3Apr+is%3Aopen+label%3A%22PR+action%3A+merge%22+-is%3Adraft).
 This list should be checked daily and any ready PRs should be merged. For each
 PR, check the `PR target` label to understand where it should be merged to. If
 `master` is targetted, then click "Rebase and Merge". If the PR also targets a
@@ -81,13 +81,27 @@ instance), then you will need to fetch the contributor's branch for your local
 Git instance to have knowledge of the commit being cherry picked onto the patch
 branch.
 
+### Maintaining LTS branches
+
+Releases that are under Long Term Support (LTS) are listed on [angular.io](https://angular.io/guide/releases#support-policy-and-schedule).
+
+Since there could be more than one LTS branch at any one time, PR authors who want to
+merge commits into LTS branches must open a pull request against the specific base branch they'd like to target.
+
+In general, cherry picks for LTS should only be done if it meets one of the criteria below:
+
+1. It addresses a critical security vulnerability.
+2. It fixes a breaking change in the external environment.  
+   For example, this could happen if one of the dependencies is deleted from NPM.
+3. It fixes a legitimate failure on CI for a particular LTS branch.
+
 # Release
 
 ## Before releasing
 
 Make sure the CI is green.
 
-Consider if you need to update `packages/schematics/angular/utility/latest-versions.ts` to reflect changes in dependent versions.
+Consider if you need to update [`packages/schematics/angular/utility/latest-versions.ts`](https://github.com/angular/angular-cli/blob/master/packages/schematics/angular/utility/latest-versions.ts) to reflect changes in dependent versions.
 
 ## Shepparding
 
@@ -98,6 +112,9 @@ As commits are cherry-picked when PRs are merged, creating the release should be
 ```bash
 git commit -a -m 'release: vXX'
 git tag 'vXX'
+
+# Make sure to run these commands together, as missing tags can cause CI
+# failures.
 git push upstream && git push upstream --tags
 ```
 
@@ -105,21 +122,18 @@ git push upstream && git push upstream --tags
 
 **This can ONLY be done by a Google employee.**
 
-Log in to [NPM](https://npmjs.com/) to the `angular` account in order to
-publish. This account is protected by two factor authentication (2FA).
+Log in to the Wombat publishing service using your own github and google.com
+account to publish.  This enforces the loging is done using 2Factor auth.
 
-Run `npm login`:
+Run `npm login --registry https://wombat-dressing-room.appspot.com`:
 
-1. For username, use `angular`.
-1. For password, use the value stored [here](http://go/ng-npm-pass).
-1. For email, use `devops+npm@angular.io`.
-1. For two-factor code, you'll need to set up the account.
-    * Use an authenticator app such as [Google Authenticator](https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2).
-    * Add a new account and enter the text key from [here](http://go/ng-npm-2fa).
-    * The app will start showing two-factor codes, enter one into the
-        `npm login` prompt.
+1. In the new browser tab, the registry app will ask you to connect with GitHub to create a token
+1. After connecting with github, you will be redirected to create a token
+1. Upon redirect, an auth token is added to your ~/.npmrc for the proxy
 
-Once sucessfully logged in, it is time to publish.
+After closing the tab, you have successfully logged in, it is time to publish.
+
+**NOTE: After publishing, remove the token added to your `~/.npmrc` file to logout.**
 
 ### Publishing
 
@@ -127,29 +141,31 @@ Once sucessfully logged in, it is time to publish.
 
 **It is a good idea to wait for CI to be green on the patch branch and tag before doing the release.**
 
-Check out the patch tag (e.g. `v6.7.8`), then run:
-```sh
-devkit-admin publish
+Check out the patch branch (e.g. `9.1.x`), then run:
+```bash
+yarn # Reload dependencies
+yarn admin publish
 ```
 
-Check out the minor tag (e.g. `v6.8.0-beta.0`), then run:
+If also publishing a prerelease, check out `master`, then run:
 ```bash
-devkit-admin publish --tag next
+yarn # Reload dependencies
+yarn admin publish --tag next
 ```
 
 ### Release Notes
 
-`devkit-admin changelog` takes `from` and `to` arguments which are any valid git
+`yarn run -s admin changelog` takes `from` and `to` arguments which are any valid git
 ref.
 
 For example, running the following command will output the release notes on
 stdout between v1.2.3 and 1.2.4:
 
 ```bash
-devkit-admin changelog --from=v1.2.3 --to=v1.2.4
+yarn run -s admin changelog --from=v1.2.3 --to=v1.2.4
 ```
 
-Copy the output (you can use `| pbcopy` on MacOS or `|xclip` on Linux) and
+Copy the output (you can use `| pbcopy` on MacOS or `| xclip` on Linux) and
 paste the release notes on [GitHub](https://github.com/angular/angular-cli/releases)
 for the tag just released.
 
